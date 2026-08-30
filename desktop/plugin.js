@@ -978,6 +978,7 @@ function AgentRow({ row, refreshEpoch }) {
 export default {
   id: ID,
   name: 'Model Sync',
+  version: '1.0.0',
   description: 'Per-member model selector for group chats + push an agent profile model to all of its sessions.',
 
   register(ctx) {

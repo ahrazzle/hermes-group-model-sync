@@ -1,5 +1,5 @@
 name: hermes-group-model-sync
-version: 0.1.0
+version: 1.0.0
 description: Per-member model & reasoning selector for Bot Mode group chats in Hermes Desktop + agent-wide model sync
 author: ahrazzle
 license: MIT
