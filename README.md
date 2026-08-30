@@ -23,13 +23,16 @@ This plugin fills both gaps with the app's own RPC contract (`config.set --sessi
 
 ## Install
 
-Drop the plugin into the desktop plugin root. Note: the root is **profile-aware** — check `~/Library/Application Support/Hermes/active-profile.json` for the active desktop profile, then install there (mirror to the global root for other profiles):
-
+**Unified package (recommended):**
 ```
-<hermes home>/desktop-plugins/group-model-sync/plugin.js          # global root
-<hermes home>/profiles/<active-profile>/desktop-plugins/group-model-sync/plugin.js  # active-profile root
+hermes plugins install ahrazzle/hermes-group-model-sync
 ```
+The plugin inventories in **Settings → Plugins** and is disabled by default. Enable it to activate the desktop pane.
 
+**Disk install (manual):**
+```
+cp -r desktop ~/.hermes/desktop-plugins/group-model-sync
+```
 The app hot-reloads standalone plugins — save the file and the Model Sync pane appears within seconds. Verify via ⌘K palette: type "Model Sync" and it shows under the PLUGINS header.
 
 ## Usage
@@ -40,9 +43,19 @@ The app hot-reloads standalone plugins — save the file and the Model Sync pane
 
 Session-scoped applies pin that session only — the profile default is never touched. The pane labels pinned sessions with a **session override** badge.
 
+## Package layout
+
+```
+hermes-group-model-sync/
+├── plugin.yaml          # Agent-plugin manifest (this repo is a unified package)
+├── desktop/
+│   └── plugin.js        # Desktop plugin (ESM, loaded by Hermes Desktop)
+└── README.md
+```
+
 ## How it works
 
-- **Roster**: `profiles.list` on the active gateway (the same rich rows the Bots pane renders), plus `host.agents()` union rows from other connections.
+- **Roster**: `profiles.list` on the active gateway (the same rich rows the Bots pane renders), plus `host.agents()` union rows for other connections.
 - **Room map**: reads Bot Mode's persisted room records (localStorage key `hermes.plugin.hermes-bots.group-chats`) read-only — degrades gracefully if the format changes.
 - **RPCs**: routed to each agent's own source via `host.requestProfile`, or the active gateway via `host.request` when a row has no route.
 - **Write**: `config.set {session_id, key:'model', value:'<model> --provider <provider> --session'}` and `config.set {session_id, key:'reasoning', value:'<level>'}` — session-scoped, never global.
