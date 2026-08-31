@@ -6,8 +6,12 @@
  *   Groups tab — pick a group chat (Bot Mode room) and see every member
  *   agent's current model + reasoning level, then change either per member.
  *   Up to 6 members per room. The same provider/model dropdowns the app's
- *   single-session picker uses, duplicated per member, backed by the same
- *   gateway RPCs (config.set --session, config.get, model.options).
+ *   single-session picker uses, duplicated per member. The durable per-member
+ *   write goes through the Bots editor's own RPC (profiles.configure with the
+ *   member profile name) — NOT config.set --session on a plumbing sid, because
+ *   group member plumbing sessions are follow_profile_config: they rebuild
+ *   from the member PROFILE's current config on every resume and discard any
+ *   session-scoped pin (see applyMemberConfig).
  *
  *   Agents tab — pick an agent profile, set model + reasoning, and press
  *   Sync to push that configuration to EVERY existing session of that agent
@@ -88,6 +92,57 @@ const memberKey = member => {
     : m.name || m.profile || 'default'
 }
 
+/** The member's AGENT PROFILE name — the durable target for a group member's
+ *  model write. Group member plumbing sessions are ``follow_profile_config``:
+ *  they rebuild from the member PROFILE's current config on every resume, so
+ *  the per-member model switch must land on the profile default, not on a
+ *  session-scoped pin. */
+const memberProfileName = member => {
+  const m = asRecord(member)
+  return String(m.name || m.profile || '').trim()
+}
+
+/** Resolve a member's CURRENT live session id for a group at apply time.
+ *
+ * The persisted Bot Mode room map (`hermes.plugin.hermes-bots.group-chats`,
+ * field ``sessions[memberKey]``) can go STALE: when a member's plumbing
+ * session is reaped as a ws-orphan (connection dropped, no clean close — which
+ * happens on every desktop close), the desktop reconnects and mints a NEW
+ * session, but the durable map keeps pointing at the reaped one until the next
+ * ``ensureGroupChatSession`` turn. ``config.set`` with that dead sid falls into
+ * the gateway's non-live else branch and silently no-ops — pins never change,
+ * no tokens ever move to the target model. That is exactly the class of bug
+ * this resolver removes.
+ *
+ * Resolution ladder (mirrors the bundled hermes-bots plugin's own live-session
+ * lookup, robust to the reap-on-close behaviour):
+ *   1. ``session.list`` (live list, ``include_hidden``) and match the room's
+ *      plumbing title ``Group: ${room.roomId || group}``. The live list is
+ *      ``ended_at IS NULL``-filtered, so a ws-orphan-reaped session NEVER
+ *      matches — only the current live session does. (A raw title-lookup would
+ *      not be enough: it returns ``[]`` for an archived row, so after a reap it
+ *      would hide the live session and force a stale fallback.)
+ *   2. Fall back to the persisted map sid only when the live list contains no
+ *      matching title (fresh room, or a backend that predates the title).
+ * Returns ``{ sid, live }``.
+ */
+async function resolveLiveSessionId(door, member, group, room) {
+  const title = `Group: ${room?.roomId || group}`
+  const key = memberKey(member)
+  try {
+    const res = await door.request('session.list', { include_hidden: true, limit: 500 })
+    const sessions = Array.isArray(res?.sessions) ? res.sessions : []
+    const hit = sessions.find(s => s && (s.title || '') === title && (s.resolved_id || s.id))
+    if (hit) {
+      return { sid: hit.resolved_id || hit.id, live: true }
+    }
+  } catch {
+    /* live lookup failed — fall through to the persisted sid below */
+  }
+  const known = room?.sessions?.[key]
+  return { sid: typeof known === 'string' ? known : null, live: false }
+}
+
 /** Route descriptor for an agent row; null when the row rides the active
  *  gateway. Mirrors Bot Mode's resolveBotConnectionRoute. */
 const routeFor = row => {
@@ -160,10 +215,16 @@ async function loadRoster() {
 // ── reads ──────────────────────────────────────────────────────────────────
 
 /** Current model/provider/reasoning for one session on one agent's door.
- *  `sid` null reads the agent's profile default (what new sessions get). */
+ *  `sid` null reads the agent's PROFILE default (what a follow_profile_config
+ *  group session rebuilds from — the authoritative value for a member).
+ *
+ *  Model+provider come from `config.get { key:'provider' }`: the gateway
+ *  resolves the profile/session default via _resolve_model() and returns
+ *  `{ model, provider, providers }`. `config.get { key:'model' }` has NO
+ *  handler and would error, leaving model/provider empty. */
 async function readMemberConfig(door, sid) {
   const [modelRes, reasoningRes] = await Promise.allSettled([
-    door.request('config.get', sid ? { key: 'model', session_id: sid } : { key: 'model' }),
+    door.request('config.get', sid ? { key: 'provider', session_id: sid } : { key: 'provider' }),
     door.request('config.get', sid ? { key: 'reasoning', session_id: sid } : { key: 'reasoning' })
   ])
   const modelInfo = asRecord(modelRes.status === 'fulfilled' ? modelRes.value : {})
@@ -236,15 +297,73 @@ async function applySessionConfig(door, sid, { model, provider, reasoning }, con
   return { needsConfirm: false, message: '', raw: modelResult }
 }
 
-/** Route a confirm_required response through the app's SHARED confirm flow
- *  (the same notification the core picker uses), then resend with the flag. */
-function confirmThenApply(door, sid, cfg, pending, onDone) {
+/** ROOT-CAUSE FIX — durable per-member group write.
+ *
+ * A group member's model cannot be changed by ``config.set --session`` on the
+ * member's plumbing sid. Two independent reasons, both backend-contract, not
+ * stale-sid freshness:
+ *
+ *   1. Group member plumbing sessions are per-turn RUNTIME LEASES, not
+ *      residents of the gateway's live ``_sessions`` registry between turns.
+ *      ``config.set`` with a non-resident sid falls into the gateway's
+ *      non-live else branch (tui_gateway/server.py:14019) and silently no-ops
+ *      for the target session.
+ *
+ *   2. Room plumbing sessions are created with BOTH ``room_plumbing:true`` AND
+ *      ``follow_profile_config:true`` (apps/desktop/.../group-turns.ts). The
+ *      backend's ``_stored_session_runtime_overrides`` deliberately returns {}
+ *      for them (tui_gateway/server.py:5253-5331) — they ALWAYS rebuild from
+ *      the member PROFILE's CURRENT config and a session-scoped pin is
+ *      DISCARDED on rebuild. So even a resident ``--session`` write would be
+ *      thrown away next turn.
+ *
+ * The durable mechanism is the same one the built-in Bots editor uses to
+ * change a bot's model: ``profiles.configure { name, model, provider }``
+ * (tui_gateway/methods_profiles.py:749), which writes the member PROFILE's
+ * config (``_write_profile_model``) that the follow_profile_config plumbing
+ * session then consumes on every rebuild. It needs no live session, so it is
+ * immune to residency. It returns the SAME ``confirm_required`` /
+ * ``confirm_message`` round-trip shape as ``config.set model`` (and writes
+ * nothing until the client resends with ``confirm_expensive_model:true``), so
+ * the shared confirm flow is preserved unmodified.
+ */
+async function applyMemberConfig(door, member, cfg, confirmExpensive = false) {
+  const { model, provider, reasoning } = asRecord(cfg)
+  const name = memberProfileName(member)
+  if (!name || !model || !provider) {
+    return { needsConfirm: false, message: '', raw: null }
+  }
+  const raw = asRecord(
+    await door.request('profiles.configure', {
+      name,
+      model,
+      provider,
+      ...(confirmExpensive ? { confirm_expensive_model: true } : {})
+    })
+  )
+  if (raw?.confirm_required && !confirmExpensive) {
+    return { needsConfirm: true, message: String(raw.confirm_message || ''), raw }
+  }
+  // Reasoning follows the same profile-default semantics (scope:'global' →
+  // agent.reasoning_effort in the profile config), best-effort.
+  if (reasoning) {
+    try {
+      await door.request('config.set', { key: 'reasoning', value: reasoning, scope: 'global' })
+    } catch {
+      /* reasoning is secondary; a failure must not roll back the model write */
+    }
+  }
+  return { needsConfirm: false, message: '', raw }
+}
+
+/** Confirm round-trip for the durable per-member profile write. */
+function confirmThenApplyMember(door, member, cfg, pending, onDone) {
   surfaceModelSwitchConfirm({
     confirmLabel: 'Confirm',
     confirmMessage: pending.message,
     failureMessage: 'Model switch failed',
     finish: () => onDone(),
-    requestConfirmed: () => applySessionConfig(door, sid, cfg, true).then(r => r.raw || {})
+    requestConfirmed: () => applyMemberConfig(door, member, cfg, true).then(r => r.raw || {})
   })
 }
 
@@ -396,7 +515,47 @@ function ModelControls({ catalog, provider, model, onChange, disabled }) {
             onChange: e => onChange({ model: e.target.value }),
             placeholder: 'model',
             value: model
-          })
+          }),
+    ]
+  })
+}
+
+/** Current-state readout — a prominent snapshot of the CURRENT
+ *  provider/model/reasoning shown above the edit controls, mirroring the
+ *  app's session model selector. The scope badge labels where these values
+ *  come from (profile default vs a live session override). */
+function CurrentReadout({ provider, model, reasoning, scope }) {
+  const isOverride = scope === 'session'
+  const label = isOverride ? 'session override' : 'profile default'
+  const reason = reasoning ? REASONING_LABELS[reasoning] || reasoning : ''
+  const detail = []
+  if (model) {
+    detail.push(jsx('span', { key: 'p', className: 'text-(--ui-text-secondary)', children: provider || 'default' }))
+    detail.push(jsx('span', { key: 'd1', className: 'text-(--ui-text-quaternary)', children: '·' }))
+    detail.push(jsx('span', { key: 'm', className: 'font-medium', children: model }))
+  } else {
+    detail.push(jsx('span', { key: 'm', className: 'font-medium', children: '—' }))
+  }
+  if (reason) {
+    detail.push(jsx('span', { key: 'd2', className: 'text-(--ui-text-quaternary)', children: '·' }))
+    detail.push(jsx('span', { key: 'r', children: `Reasoning: ${reason}` }))
+  }
+  const title = model
+    ? `${provider || 'default'} · ${model}${reason ? ` · Reasoning: ${reason}` : ''}`
+    : '—'
+  return jsx('div', {
+    className: 'flex min-w-0 items-center gap-1.5 rounded-md border border-(--ui-stroke-secondary) px-2 py-1',
+    children: [
+      jsx('span', {
+        className: 'shrink-0 text-[0.6rem] font-semibold uppercase tracking-wide text-(--ui-text-tertiary)',
+        children: 'Current'
+      }),
+      jsx('span', { className: 'min-w-0 flex-1 truncate text-xs', title, children: detail }),
+      jsx(Badge, {
+        className: 'shrink-0 text-[0.6rem]',
+        variant: isOverride ? 'default' : 'muted',
+        children: label
+      })
     ]
   })
 }
@@ -447,10 +606,10 @@ function GroupsTab({ rooms, rosterByName, refreshEpoch }) {
           })
         : null,
       ...memberRows.map(({ member, row }) =>
-        jsx(MemberRow, { key: memberKey(member), member, row, room, refreshEpoch })
+        jsx(MemberRow, { key: memberKey(member), member, row, room, group, refreshEpoch })
       ),
       memberRows.length > 1
-        ? jsx(AllMembersRow, { key: 'all', memberRows, room, refreshEpoch })
+        ? jsx(AllMembersRow, { key: 'all', memberRows, room, group, refreshEpoch })
         : null
     ]
   })
@@ -458,7 +617,7 @@ function GroupsTab({ rooms, rosterByName, refreshEpoch }) {
 
 /** One set of controls below the member rows: set provider/model/reasoning
  *  once and Apply pushes it to EVERY member with a live group session. */
-function AllMembersRow({ memberRows, room, refreshEpoch }) {
+function AllMembersRow({ memberRows, room, group, refreshEpoch }) {
   const [draft, setDraft] = useState(null)
   const [applying, setApplying] = useState(false)
   const [msg, setMsg] = useState('')
@@ -491,14 +650,17 @@ function AllMembersRow({ memberRows, room, refreshEpoch }) {
     if (!draft?.model || !draft?.provider) {
       return
     }
+    // Group member plumbing sessions are follow_profile_config: they rebuild
+    // from each member PROFILE's current config on every resume, and a
+    // session-scoped config.set --session pin is discarded. The durable write
+    // targets each member PROFILE default via profiles.configure — no plumbing
+    // sid, no residency requirement. Every member with a profile name is
+    // targeted.
     const targets = memberRows
-      .map(entry => ({
-        door: doorFor(entry.row),
-        sid: room?.sessions?.[memberKey(entry.member)]
-      }))
-      .filter(t => typeof t.sid === 'string' && t.sid)
+      .map(entry => ({ door: doorFor(entry.row), member: entry.member }))
+      .filter(t => memberProfileName(t.member))
     if (!targets.length) {
-      setMsg('No member sessions yet')
+      setMsg('No member profiles found')
       return
     }
     setApplying(true)
@@ -507,7 +669,7 @@ function AllMembersRow({ memberRows, room, refreshEpoch }) {
       const results = await Promise.all(
         targets.map(async t => {
           try {
-            const pending = await applySessionConfig(t.door, t.sid, draft)
+            const pending = await applyMemberConfig(t.door, t.member, draft)
             return pending.needsConfirm ? { needsConfirm: true, message: pending.message } : { ok: true }
           } catch (err) {
             return { error: rpcErrorText(err) }
@@ -525,7 +687,7 @@ function AllMembersRow({ memberRows, room, refreshEpoch }) {
             Promise.all(
               targets.map(async t => {
                 try {
-                  const pending = await applySessionConfig(t.door, t.sid, draft, true)
+                  const pending = await applyMemberConfig(t.door, t.member, draft, true)
                   return pending.needsConfirm ? { needsConfirm: true, message: pending.message } : { ok: true }
                 } catch (err) {
                   return { error: rpcErrorText(err) }
@@ -587,7 +749,7 @@ function AllMembersRow({ memberRows, room, refreshEpoch }) {
   })
 }
 
-function MemberRow({ member, row, room, refreshEpoch }) {
+function MemberRow({ member, row, room, group, refreshEpoch }) {
   const sid = typeof room?.sessions?.[memberKey(member)] === 'string' ? room.sessions[memberKey(member)] : null
   const door = useMemo(() => doorFor(row), [row])
   const [state, setState] = useState({
@@ -598,7 +760,8 @@ function MemberRow({ member, row, room, refreshEpoch }) {
     reasoning: '',
     scope: 'default',
     catalog: [],
-    applying: false
+    applying: false,
+    liveSid: null
   })
   const [draft, setDraft] = useState(null)
   const [applyMsg, setApplyMsg] = useState('')
@@ -606,14 +769,23 @@ function MemberRow({ member, row, room, refreshEpoch }) {
   useEffect(() => {
     let alive = true
     setState(s => ({ ...s, loading: true, error: '' }))
-    Promise.all([readMemberConfig(door, sid), fetchModelOptions(door)])
-      .then(([cfg, catalog]) => {
-        if (!alive) {
-          return
-        }
-        setState(s => ({ ...s, loading: false, ...cfg, catalog }))
-        setDraft({ model: cfg.model, provider: cfg.provider, reasoning: cfg.reasoning || 'medium' })
-      })
+    // The AUTHORITATIVE current config for a group member IS its PROFILE
+    // default (readMemberConfig with sid null): member plumbing sessions are
+    // follow_profile_config and rebuild from that default on every resume, so
+    // a session-scoped read would be stale/non-authoritative. resolveLiveSessionId
+    // is kept ONLY to learn the live sid for the session.info overlay below —
+    // never as the handle to read config through.
+    Promise.all([
+      resolveLiveSessionId(door, member, group, room),
+      readMemberConfig(door, null),
+      fetchModelOptions(door)
+    ]).then(([live, cfg, catalog]) => {
+      if (!alive) {
+        return
+      }
+      setState(s => ({ ...s, loading: false, ...cfg, catalog, liveSid: live.sid }))
+      setDraft({ model: cfg.model, provider: cfg.provider, reasoning: cfg.reasoning || 'medium' })
+    })
       .catch(err => {
         if (alive) {
           setState(s => ({ ...s, loading: false, error: rpcErrorText(err) }))
@@ -622,15 +794,17 @@ function MemberRow({ member, row, room, refreshEpoch }) {
     return () => {
       alive = false
     }
-  }, [door, sid, refreshEpoch])
+  }, [door, sid, group, refreshEpoch])
 
   // Live truth: session.info events for this member's session repaint the row.
+  // Filter on the RESOLVED live sid (state.liveSid), not the possibly-stale
+  // persisted sid — a reaped session never emits, and the live one would miss.
   useEffect(() => {
-    if (!sid) {
+    if (!state.liveSid) {
       return undefined
     }
     return host.onEvent('session.info', event => {
-      if (event?.session_id !== sid) {
+      if (event?.session_id !== state.liveSid) {
         return
       }
       const payload = asRecord(event.payload)
@@ -650,39 +824,46 @@ function MemberRow({ member, row, room, refreshEpoch }) {
         setDraft(d => (d ? { ...d, ...patch } : d))
       }
     })
-  }, [sid])
+  }, [state.liveSid])
 
   const apply = async () => {
-    if (!sid || !draft?.model || !draft?.provider) {
-      setApplyMsg('No session or model selected')
+    if (!draft?.model || !draft?.provider) {
+      return
+    }
+    // Group members run follow_profile_config plumbing sessions: they rebuild
+    // from the member PROFILE's CURRENT config on every resume, and a
+    // session-scoped config.set --session pin on the plumbing sid is discarded
+    // (and the sid is not even resident in the gateway between turns, so the
+    // write silently no-ops). The durable per-member write therefore targets
+    // the member PROFILE default via profiles.configure — never a plumbing sid.
+    const name = memberProfileName(member)
+    if (!name) {
+      setApplyMsg('No profile for this member')
       return
     }
     setState(s => ({ ...s, applying: true }))
     setApplyMsg('')
     try {
-      const pending = await applySessionConfig(door, sid, draft)
+      const pending = await applyMemberConfig(door, member, draft)
       if (pending.needsConfirm) {
-        confirmThenApply(door, sid, draft, pending, () => {
-          setApplyMsg('Applied — takes effect next turn')
+        confirmThenApplyMember(door, member, draft, pending, () => {
+          setApplyMsg('Applied — takes effect on the member\'s next turn')
           setState(s => ({ ...s, applying: false }))
         })
         return
       }
-      // Read back what the gateway actually resolved, so the row shows the
-      // truth (deferred switches apply at the next turn start).
-      const readback = await readMemberConfig(door, sid)
+      // Read back the PROFILE default (sid null) so the row shows exactly what
+      // the member's next group turn actually runs.
+      const readback = await readMemberConfig(door, null)
       setState(s => ({
         ...s,
         applying: false,
         model: readback.model || draft.model,
         provider: readback.provider || draft.provider,
-        scope: readback.scope === 'session' ? 'session' : 'default'
+        reasoning: readback.reasoning || draft.reasoning,
+        scope: 'default'
       }))
-      setApplyMsg(
-        readback.scope === 'session'
-          ? 'Applied — takes effect next turn'
-          : 'Queued — will apply at the next turn start'
-      )
+      setApplyMsg('Applied — takes effect on the member\'s next turn')
     } catch (err) {
       setApplyMsg(`Failed: ${rpcErrorText(err)}`)
       setState(s => ({ ...s, applying: false }))
@@ -705,17 +886,18 @@ function MemberRow({ member, row, room, refreshEpoch }) {
         className: 'flex items-center gap-1.5',
         children: [
           jsx(AvatarDot, { color, name }),
-          jsx('span', { className: 'min-w-0 flex-1 truncate text-xs font-semibold', children: name }),
-          jsx(Badge, {
-            className: 'shrink-0 text-[0.6rem]',
-            variant: state.scope === 'session' ? 'default' : 'muted',
-            children: state.scope === 'session' ? 'session override' : 'default'
-          })
+          jsx('span', { className: 'min-w-0 flex-1 truncate text-xs font-semibold', children: name })
         ]
       }),
       state.error
         ? jsx('div', { className: 'text-[0.65rem] text-red-500', children: state.error })
         : null,
+      jsx(CurrentReadout, {
+        provider: state.provider,
+        model: state.model,
+        reasoning: state.reasoning,
+        scope: state.scope
+      }),
       !sid
         ? jsx('div', {
             className: 'text-[0.65rem] text-(--ui-text-quaternary)',
@@ -724,6 +906,10 @@ function MemberRow({ member, row, room, refreshEpoch }) {
         : jsx('div', {
             className: 'grid gap-1.5',
             children: [
+              jsx('div', {
+                className: 'text-[0.6rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)',
+                children: 'Change'
+              }),
               jsx(ModelControls, {
                 catalog: state.catalog,
                 disabled: state.applying,
@@ -932,16 +1118,21 @@ function AgentRow({ row, refreshEpoch }) {
         className: 'flex items-center gap-1.5',
         children: [
           jsx(AvatarDot, { color, name }),
-          jsx('span', { className: 'min-w-0 flex-1 truncate text-xs font-semibold', children: name }),
-          jsx(Badge, { className: 'shrink-0 text-[0.6rem]', variant: 'muted', children: 'default' })
+          jsx('span', { className: 'min-w-0 flex-1 truncate text-xs font-semibold', children: name })
         ]
       }),
       state.error
         ? jsx('div', { className: 'text-[0.65rem] text-red-500', children: state.error })
         : null,
+      jsx(CurrentReadout, {
+        provider: state.provider,
+        model: state.model,
+        reasoning: state.reasoning,
+        scope: 'default'
+      }),
       jsx('div', {
-        className: 'text-[0.65rem] text-(--ui-text-tertiary)',
-        children: `Current default: ${state.model || '—'}${state.reasoning ? ` · ${REASONING_LABELS[state.reasoning] || state.reasoning}` : ''}`
+        className: 'text-[0.6rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)',
+        children: 'Change'
       }),
       jsx(ModelControls, {
         catalog: state.catalog,
@@ -978,7 +1169,7 @@ function AgentRow({ row, refreshEpoch }) {
 export default {
   id: ID,
   name: 'Model Sync',
-  version: '1.0.0',
+  version: '1.0.2',
   description: 'Per-member model selector for group chats + push an agent profile model to all of its sessions.',
 
   register(ctx) {
