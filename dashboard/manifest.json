@@ -1,0 +1,8 @@
+{
+  "name": "group-model-sync",
+  "label": "Model Sync (presets backend)",
+  "description": "Backend routes for the group-model-sync desktop pane's Presets tab: /presets, /presets/plan, /presets/apply, /profiles, /status.",
+  "version": "1.1.0",
+  "tab": { "hidden": true },
+  "api": "plugin_api.py"
+}

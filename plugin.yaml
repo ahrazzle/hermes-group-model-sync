@@ -1,11 +1,36 @@
 name: hermes-group-model-sync
-version: 1.0.2
-description: Per-member model & reasoning selector for Bot Mode group chats in Hermes Desktop + agent-wide model sync
+version: 1.1.0
+# Declared metadata only — no runtime gating (api_version is the contract, and the
+# plugin probes features rather than gating on it). manifest_version stays at 1
+# because the INSTALLER refuses a manifest_version above its own
+# _SUPPORTED_MANIFEST_VERSION (hermes_cli/plugins_cmd.py:169, enforced at :597 = 1 on
+# Hermes 0.21.3), while the LOADER accepts 2 (hermes_cli/plugins_manifest.py:43). A
+# manifest_version: 2 file therefore loads fine but cannot be installed at all via
+# `hermes plugins install` on this host. Every v2 field below (api_version,
+# config_schema, python_dependencies, license, homepage, tags) is additive and read
+# regardless of this number.
+manifest_version: 1
+api_version: 1
+description: Fleet-wide provider/model presets (CLI + desktop pane) plus per-member model & reasoning selection for Bot Mode group chats and agent-wide model sync
 author: ahrazzle
 license: MIT
 homepage: https://github.com/ahrazzle/hermes-group-model-sync
-tags: [desktop, bot-mode, model-sync, group-chat]
+tags: [desktop, bot-mode, model-sync, group-chat, presets, cli]
+python_dependencies: []
+provides_tools: []
+provides_hooks: []
+# Closed settings schema, and deliberately EMPTY. Hermes' config_schema is a mapping of
+# setting name -> {type, default, description, required}
+# (hermes_cli/plugins_manifest.py), not a JSON Schema, so the empty mapping is the honest
+# "this plugin declares no settings" form. v1 has exactly one source of preset truth — the
+# installed package's own presets/presets.json (D4), reached through the plugin's own
+# presets_path() — so there is no preset-catalog setting, no profile-local lookup and no
+# network lookup to declare.
+config_schema: {}
 
-# This is a unified package with a desktop half only (no agent tools/hooks).
-# The desktop half lives at desktop/plugin.js and registers a right-side pane.
-# Install with: hermes plugins install ahrazzle/hermes-group-model-sync
+# Unified package: agent half at the root (CLI verbs + read-only /gms status + bundled
+# skill + dashboard/plugin_api.py backend), desktop half at desktop/plugin.js.
+# Install per profile, then enable both halves explicitly — install is not activation:
+#   hermes -p <profile> plugins install ahrazzle/hermes-group-model-sync --ref <40-char sha>
+#   hermes -p <profile> plugins enable hermes-group-model-sync
+#   then flip the desktop half on in Settings -> Plugins.

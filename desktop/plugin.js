@@ -1,7 +1,6 @@
 /**
- * group-model-sync — Group Model Selector + Agent-wide model sync for Hermes Desktop.
- *
- * Two features, one pane:
+ * group-model-sync — Group Model Selector + Agent-wide model sync + fleet presets
+ * for Hermes Desktop. Three tabs, one pane:
  *
  *   Groups tab — pick a group chat (Bot Mode room) and see every member
  *   agent's current model + reasoning level, then change either per member.
@@ -18,6 +17,13 @@
  *   (canonical Bot Chat, group plumbing sessions, cron sessions, anything
  *   else) — exactly as if the user had opened each session and picked the
  *   model manually.
+ *
+ *   Presets tab — apply a named provider/model preset to explicitly chosen
+ *   profiles. Read/write go through this plugin's OWN backend routes
+ *   (ctx.rest → /api/plugins/group-model-sync/…), served by the agent half's
+ *   dashboard/plugin_api.py; when that half is not enabled the tab renders one
+ *   enable-guidance row instead of a dead table. No preset value is hardcoded
+ *   here: the catalog comes from the backend, which reads presets/presets.json.
  *
  * Data sources (all local, no telemetry):
  *   - Roster: `profiles.list` on the active gateway (the same rich rows the
@@ -177,6 +183,15 @@ const rpcErrorText = err => {
   const e = asRecord(err)
   return String(e.message || e.error || err || 'request failed')
 }
+
+/** Display form for a plan/receipt value: an absent key reads as "(absent)",
+ *  never as an empty string (I2 — absent, null and "clear it" are different). */
+const fmtValue = value =>
+  value === null || value === undefined
+    ? '(absent)'
+    : typeof value === 'string'
+      ? value
+      : JSON.stringify(value)
 
 // ── roster ─────────────────────────────────────────────────────────────────
 
@@ -1164,13 +1179,389 @@ function AgentRow({ row, refreshEpoch }) {
   })
 }
 
+// ── Presets tab ────────────────────────────────────────────────────────────
+//
+// The third tab (D9). Read path: this plugin's OWN backend namespace through
+// ctx.rest — GET /presets (the catalog, the one source of preset truth) and GET
+// /profiles (the local targets). Write path: POST /presets/plan (read-only diff)
+// then POST /presets/apply, which is refused until the caller sends yes:true —
+// the two-step confirm. Every receipt line the backend returns is rendered
+// as-is; the pane never invents a value and never claims a write that the
+// read-back did not confirm.
+//
+// When the agent half is not enabled (or this shell predates the routes) the tab
+// renders ONE actionable row naming the enable step instead of a dead table
+// (D14): the UI never pretends a capability exists.
+
+const ENABLE_HINT =
+  'Enable the agent half in Settings → Plugins (hermes-group-model-sync), then reopen this pane.'
+
+function PresetsTab({ rest, refreshEpoch }) {
+  const [catalog, setCatalog] = useState(null)
+  const [profiles, setProfiles] = useState([])
+  const [active, setActive] = useState('')
+  const [status, setStatus] = useState(null)
+  const [presetId, setPresetId] = useState('')
+  const [selected, setSelected] = useState([])
+  const [plan, setPlan] = useState(null)
+  const [receipt, setReceipt] = useState(null)
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    if (!rest) {
+      setCatalog({ error: 'this build has no plugin REST door' })
+      return undefined
+    }
+    setCatalog(null)
+    setMsg('')
+    Promise.all([rest('/presets'), rest('/profiles'), rest('/status')])
+      .then(([cat, profs, st]) => {
+        if (!alive) {
+          return
+        }
+        setCatalog(asRecord(cat))
+        setProfiles(Array.isArray(profs?.profiles) ? profs.profiles : [])
+        setActive(String(profs?.active || ''))
+        setStatus(asRecord(st))
+        const first = Array.isArray(cat?.presets) && cat.presets.length ? String(cat.presets[0].id) : ''
+        setPresetId(current => current || first)
+        const target = String(profs?.active || '')
+        setSelected(current => (current.length ? current : target && (profs?.profiles || []).includes(target) ? [target] : []))
+      })
+      .catch(err => {
+        if (alive) {
+          setCatalog({ error: rpcErrorText(err) })
+        }
+      })
+    return () => {
+      alive = false
+    }
+  }, [rest, refreshEpoch])
+
+  const presets = Array.isArray(catalog?.presets) ? catalog.presets : []
+  const preset = presets.find(p => String(p.id) === presetId) || null
+
+  const toggleTarget = name => {
+    setPlan(null)
+    setReceipt(null)
+    setConfirming(false)
+    setSelected(current =>
+      current.includes(name) ? current.filter(n => n !== name) : [...current, name]
+    )
+  }
+
+  const preview = async () => {
+    if (!presetId || !selected.length) {
+      setMsg('Pick a preset and at least one target profile')
+      return
+    }
+    setBusy(true)
+    setMsg('')
+    setConfirming(false)
+    setReceipt(null)
+    try {
+      const res = await rest('/presets/plan', {
+        method: 'POST',
+        body: { preset: presetId, profiles: selected }
+      })
+      setPlan(asRecord(res))
+    } catch (err) {
+      setMsg(`Plan failed: ${rpcErrorText(err)}`)
+    }
+    setBusy(false)
+  }
+
+  const apply = async () => {
+    if (!presetId || !selected.length) {
+      return
+    }
+    setBusy(true)
+    setMsg('')
+    try {
+      const res = await rest('/presets/apply', {
+        method: 'POST',
+        body: {
+          preset: presetId,
+          profiles: selected,
+          yes: true,
+          verify: true,
+          confirm_expensive: Boolean(preset?.guarded)
+        }
+      })
+      setReceipt(asRecord(res))
+      setPlan(null)
+      setConfirming(false)
+    } catch (err) {
+      setMsg(`Apply failed: ${rpcErrorText(err)}`)
+    }
+    setBusy(false)
+  }
+
+  if (!catalog) {
+    return jsx(Spinner, { label: 'Loading presets…' })
+  }
+
+  if (catalog.error) {
+    return jsx('div', {
+      className: 'grid gap-2 p-2',
+      children: [
+        jsx(EmptyState, {
+          title: 'Presets need the agent half',
+          description: ENABLE_HINT,
+          icon: jsx(Codicon, { name: 'extensions' })
+        }),
+        jsx('div', {
+          className: 'text-[0.65rem] text-(--ui-text-quaternary)',
+          children: `backend said: ${catalog.error}`
+        })
+      ]
+    })
+  }
+
+  const planRows = Array.isArray(plan?.plans) ? plan.plans : []
+  const receipts = Array.isArray(receipt?.receipts) ? receipt.receipts : []
+
+  return jsx('div', {
+    className: 'grid gap-2 p-2',
+    children: [
+      status && !status.error && !status.provider && !status.model
+        ? jsx('div', {
+            className: 'text-[0.65rem] text-(--ui-text-quaternary)',
+            children: `this profile (${status.profile}) has no model set yet`
+          })
+        : null,
+      status && (status.provider || status.model)
+        ? jsx(CurrentReadout, {
+            provider: status.provider,
+            model: status.model,
+            reasoning: status.reasoning,
+            scope: 'default'
+          })
+        : null,
+      jsx('div', {
+        className: 'text-[0.6rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)',
+        children: 'Preset'
+      }),
+      jsx(Select, {
+        disabled: busy,
+        onValueChange: v => {
+          setPresetId(v)
+          setPlan(null)
+          setReceipt(null)
+          setConfirming(false)
+        },
+        value: presetId,
+        children: [
+          jsx(SelectTrigger, { className: 'h-8 rounded-md text-xs', children: jsx(SelectValue, {}) }),
+          jsx(SelectContent, {
+            children: presets.map(p =>
+              jsx(SelectItem, {
+                key: String(p.id),
+                value: String(p.id),
+                children: `${p.name || p.id}${p.guarded ? ' ⚠' : ''}`
+              })
+            )
+          })
+        ]
+      }),
+      preset?.description
+        ? jsx('div', { className: 'text-[0.65rem] text-(--ui-text-quaternary)', children: preset.description })
+        : null,
+      preset?.assignments
+        ? jsx('div', {
+            className: 'text-[0.65rem] font-medium',
+            children: `Per-profile assignments: this preset names exactly ${Object.keys(preset.assignments).sort().join(', ')} — applying it to any other profile is refused.`
+          })
+        : null,
+      preset
+        ? jsx('div', {
+            className: 'grid gap-0.5',
+            children: (preset.keys || []).map(row =>
+              jsx('div', {
+                key: row.key,
+                className: 'flex items-center gap-1.5 text-[0.65rem]',
+                children: [
+                  jsx('span', { className: 'min-w-0 flex-1 truncate text-(--ui-text-tertiary)', children: row.key }),
+                  jsx('span', {
+                    className: 'min-w-0 truncate font-medium',
+                    children: typeof row.value === 'string' ? row.value : JSON.stringify(row.value)
+                  })
+                ]
+              })
+            )
+          })
+        : null,
+      preset && (preset.declared_not_applied || []).length
+        ? jsx('div', {
+            className: 'text-[0.65rem] text-(--ui-text-quaternary)',
+            children: preset.declared_not_applied.map(n => `declared, not applied — ${n.tier}`).join('; ')
+          })
+        : null,
+      jsx(Tip, {
+        label: 'Every apply needs an explicit target — nothing is implicit (I1)',
+        children: jsx('div', {
+          className: 'text-[0.6rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)',
+          children: `Targets (${selected.length})`
+        })
+      }),
+      jsx('div', {
+        className: 'grid gap-1',
+        children: profiles.length
+          ? profiles.map(name =>
+              jsx(Button, {
+                key: name,
+                className: 'h-7 justify-start px-2 text-xs',
+                disabled: busy,
+                onClick: () => toggleTarget(name),
+                size: 'sm',
+                variant: selected.includes(name) ? 'secondary' : 'ghost',
+                children: `${selected.includes(name) ? '✓ ' : ''}${name}${name === active ? ' (this profile)' : ''}`
+              })
+            )
+          : jsx('div', { className: 'text-[0.65rem] text-(--ui-text-quaternary)', children: 'no local profiles found' })
+      }),
+      jsx('div', {
+        className: 'flex items-center gap-1.5',
+        children: [
+          jsx(Button, {
+            className: 'h-7 flex-1 text-xs',
+            disabled: busy || !presetId || !selected.length,
+            onClick: () => void preview(),
+            size: 'sm',
+            variant: 'secondary',
+            children: busy ? 'Working…' : 'Preview diff'
+          }),
+          confirming
+            ? jsx(Button, {
+                className: 'h-7 flex-1 text-xs',
+                disabled: busy,
+                onClick: () => void apply(),
+                size: 'sm',
+                children: 'Confirm apply'
+              })
+            : jsx(Button, {
+                className: 'h-7 flex-1 text-xs',
+                disabled: busy || !presetId || !selected.length,
+                onClick: () => setConfirming(true),
+                size: 'sm',
+                children: 'Apply…'
+              })
+        ]
+      }),
+      confirming
+        ? jsx('div', {
+            className: 'flex items-center gap-1.5',
+            children: [
+              jsx('span', {
+                className: 'min-w-0 flex-1 text-[0.65rem] text-(--ui-text-secondary)',
+                children: `Write ${preset ? preset.name || preset.id : ''} to ${selected.join(', ')}? A backup is written first.`
+              }),
+              jsx(Button, {
+                className: 'h-6 shrink-0 px-2 text-[0.65rem]',
+                onClick: () => setConfirming(false),
+                size: 'sm',
+                variant: 'ghost',
+                children: 'Cancel'
+              })
+            ]
+          })
+        : null,
+      msg ? jsx('div', { className: 'text-[0.65rem] text-(--ui-text-secondary)', children: msg }) : null,
+      ...planRows.map(p =>
+        jsx('div', {
+          key: p.profile,
+          className: 'grid gap-0.5 rounded-md border border-(--ui-stroke-secondary) p-2',
+          children: [
+            jsx('div', { className: 'text-xs font-semibold', children: p.profile }),
+            p.ok === false
+              ? jsx('div', { className: 'text-[0.65rem] text-red-500', children: `REFUSED: ${p.error}` })
+              : null,
+            p.ok !== false && !(p.changes || []).length
+              ? jsx('div', {
+                  className: 'text-[0.65rem] text-(--ui-text-secondary)',
+                  children: 'no changes — already matches this preset'
+                })
+              : null,
+            ...(p.changes || []).map(c =>
+              jsx('div', {
+                key: c.key,
+                className: 'text-[0.65rem]',
+                children: [
+                  jsx('span', { className: 'text-(--ui-text-tertiary)', children: `${c.key}: ` }),
+                  jsx('span', { className: 'text-(--ui-text-quaternary)', children: `${fmtValue(c.before)} → ` }),
+                  jsx('span', { className: 'font-medium', children: fmtValue(c.after) })
+                ]
+              })
+            ),
+            ...(p.unchanged || []).map(u =>
+              jsx('div', {
+                key: `u-${u.key}`,
+                className: 'text-[0.65rem] text-(--ui-text-quaternary)',
+                children: `unchanged: ${u.key} = ${fmtValue(u.value)}`
+              })
+            ),
+            ...(p.declared_not_applied || []).map(n =>
+              jsx('div', {
+                key: `n-${n.tier}`,
+                className: 'text-[0.65rem] text-(--ui-text-quaternary)',
+                children: `declared, not applied — ${n.tier}: ${n.reason}`
+              })
+            )
+          ]
+        })
+      ),
+      ...receipts.map(r =>
+        jsx('div', {
+          key: `r-${r.profile}`,
+          className: 'grid gap-0.5 rounded-md border border-(--ui-stroke-secondary) p-2',
+          children: [
+            jsx('div', { className: 'text-xs font-semibold', children: r.profile }),
+            r.error
+              ? jsx('div', { className: 'text-[0.65rem] text-red-500', children: `REFUSED: ${r.error}` })
+              : jsx('div', {
+                  className: 'text-[0.65rem] text-(--ui-text-secondary)',
+                  children: r.no_op ? 'already applied — nothing written' : 'applied'
+                }),
+            ...(r.changes || []).map(c =>
+              jsx('div', {
+                key: c.key,
+                className: 'text-[0.65rem]',
+                children: `${c.key}: ${fmtValue(c.before)} → ${fmtValue(c.after)}`
+              })
+            ),
+            ...(r.readback || []).map(row =>
+              jsx('div', {
+                key: `rb-${row.key}`,
+                className: 'text-[0.65rem] text-(--ui-text-quaternary)',
+                children: `read-back ${row.key} = ${fmtValue(row.value)} [${row.status}]`
+              })
+            ),
+            r.backup
+              ? jsx('div', { className: 'text-[0.65rem] text-(--ui-text-quaternary)', children: `backup: ${r.backup}` })
+              : null,
+            r.verify
+              ? jsx('div', {
+                  className: 'text-[0.65rem] text-(--ui-text-quaternary)',
+                  children: `state.db: ${r.verify.state_db?.verified ? 'VERIFIED' : 'UNVERIFIED'} — ${r.verify.state_db?.reason || ''}`
+                })
+              : null
+          ]
+        })
+      )
+    ]
+  })
+}
+
 // ── pane root ──────────────────────────────────────────────────────────────
 
 export default {
   id: ID,
   name: 'Model Sync',
-  version: '1.0.2',
-  description: 'Per-member model selector for group chats + push an agent profile model to all of its sessions.',
+  version: '1.1.0',
+  description: 'Per-member model selector for group chats, agent-wide session sync, and fleet-wide provider/model presets.',
 
   register(ctx) {
     ctx.register({
@@ -1181,12 +1572,12 @@ export default {
         placement: 'right',
         width: 360
       },
-      render: () => jsx(PaneRoot, {})
+      render: () => jsx(PaneRoot, { rest: ctx.rest })
     })
   }
 }
 
-function PaneRoot() {
+function PaneRoot({ rest }) {
   const [tab, setTab] = useState('groups')
   const [refreshEpoch, setRefreshEpoch] = useState(0)
   const [roster, setRoster] = useState(null)
@@ -1253,6 +1644,13 @@ function PaneRoot() {
                 size: 'sm',
                 variant: tab === 'agents' ? 'secondary' : 'ghost',
                 children: 'Agents'
+              }),
+              jsx(Button, {
+                className: 'h-6 px-2 text-xs',
+                onClick: () => setTab('presets'),
+                size: 'sm',
+                variant: tab === 'presets' ? 'secondary' : 'ghost',
+                children: 'Presets'
               })
             ]
           }),
@@ -1275,7 +1673,9 @@ function PaneRoot() {
           ? jsx(Spinner, { label: 'Loading agents…' })
           : tab === 'groups'
             ? jsx(GroupsTab, { rooms, rosterByName, refreshEpoch })
-            : jsx(AgentsTab, { agents: roster, refreshEpoch })
+            : tab === 'agents'
+              ? jsx(AgentsTab, { agents: roster, refreshEpoch })
+              : jsx(PresetsTab, { rest, refreshEpoch })
     ]
   })
 }
