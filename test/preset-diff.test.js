@@ -9,7 +9,7 @@
 // Prerequisite: `python3` with PyYAML — the repo ships a Python agent half, so this is
 // the same interpreter the plugin itself runs on. Override with PYTHON=/path/to/python.
 //
-// What it pins (leo-design.md §4):
+// What it pins (design spec §4):
 //   I2  a key the preset does not name (absent, or null) is never a row, never written;
 //   I3  a diff against an already-applied config is EMPTY (the idempotency rule);
 //   minimality: only keys whose value actually differs appear in `changes`;

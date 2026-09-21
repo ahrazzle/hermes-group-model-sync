@@ -44,13 +44,13 @@ routes — as one named preset:
 ```json
 {
   "id": "config-3",
-  "name": "Config 3 (live fleet array, read YYYY-MM-DD)",
+  "name": "Config 3 (example per-profile array)",
   "description": "states where and when the array was read",
   "guarded": true,
   "tiers": { "main": null, "aux": null, "fallback": null },
   "assignments": {
-    "proteus": { "provider": "...", "model": "..." },
-    "orda":    { "provider": "...", "model": "...", "base_url": "...", "api_mode": "..." }
+    "developer-a": { "provider": "...", "model": "..." },
+    "reviewer":    { "provider": "...", "model": "...", "base_url": "...", "api_mode": "..." }
   }
 }
 ```

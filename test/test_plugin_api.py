@@ -9,7 +9,7 @@ Run (needs the host package plus fastapi/httpx — the Hermes venv is the suppor
 
     python -m pytest test/test_plugin_api.py
 
-What it pins (leo-design.md D9, D14, I1):
+What it pins (design spec D9, D14, I1):
   * the routes are profile-scoped BY THE REQUEST: an explicit target is required for
     plan/apply, and omitting one is a refusal, never a default write;
   * apply refuses without the explicit ``yes`` confirmation and hands back the plan
