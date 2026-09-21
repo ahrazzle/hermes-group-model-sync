@@ -9,7 +9,7 @@ supported runner; ``HERMES_AGENT_SRC`` overrides the source-tree path):
 
     python -m pytest test/test_preset_apply.py
 
-What it pins (leo-design.md D5/D7/D8, invariants I1-I5, D14):
+What it pins (design spec D5/D7/D8, invariants I1-I5, D14):
   * apply writes ONLY the keys the preset names, and reads every one of them back;
   * a backup exists before the write, named config.yaml.bak-<UTC>-<preset id>;
   * a second identical apply writes nothing (I3) and says so;
@@ -496,8 +496,8 @@ def test_manifest_ships_no_alternative_catalog_key():
 
 
 def test_shipped_presets_are_labelled_example_only(scratch):
-    """O4 — an EXAMPLE preset with machine values is labelled, and the fleet-array
-    preset (per-profile assignments) is NOT an example and must not be labelled."""
+    """O4 — every shipped preset with machine values is labelled EXAMPLE ONLY,
+    including the assignments array (synthetic example profiles, not fleet data)."""
     machine_valued = 0
     for preset in core.list_presets():
         main = preset["tiers"]["main"] or {}
@@ -509,17 +509,15 @@ def test_shipped_presets_are_labelled_example_only(scratch):
     assert machine_valued >= 2
 
 
-def test_shipped_fleet_array_preset_is_real_and_per_profile(scratch):
-    """The catalog ships at least one assignments preset with a stated read-date
-    (provenance) and no example labelling — data, not an illustrative carry."""
+def test_shipped_assignments_preset_is_synthetic_and_per_profile(scratch):
+    """The catalog ships at least one assignments preset carrying synthetic example
+    profiles only — clearly labelled as an example, never real fleet data."""
     arrays = [p for p in core.list_presets() if p.get("assignments")]
-    assert arrays, "catalog must carry a real per-profile assignments preset"
+    assert arrays, "catalog must carry a per-profile assignments preset"
     for preset in arrays:
         assert preset["tiers"]["main"] is None, "an assignments preset carries no global route"
-        assert "(example)" not in preset["name"].lower()
-        assert "EXAMPLE ONLY" not in preset["description"]
-        import re as _re
-        assert _re.search(r"\d{4}-\d{2}-\d{2}", preset["description"]), "read-date provenance required"
+        assert "example" in preset["name"].lower(), "assignments preset must be labelled an example"
+        assert "EXAMPLE ONLY" in preset["description"]
         assert len(preset["assignments"]) >= 2
         for profile, tier in preset["assignments"].items():
             assert profile.strip() == profile and profile
@@ -595,19 +593,18 @@ def test_assignments_rejection_surfaces_through_the_cli(scratch, capsys):
     assert "(assigned:" in out, "the refusal must list the assigned profile names"
 
 
-def test_shipped_config3_is_a_real_per_profile_array(scratch):
-    """Brief §2: a `config-3` preset with the seven named fleet profiles."""
+def test_shipped_config3_is_a_synthetic_per_profile_array(scratch):
+    """Brief §2: a `config-3` preset with synthetic example profiles."""
     catalog = core.load_catalog(REPO / "presets" / "presets.json")
     c3 = next(p for p in catalog["presets"] if p["id"] == "config-3")
-    assert c3["guarded"] is True, "a fleet array naming gpt-5.6-luna-900k is guarded"
+    assert c3["guarded"] is True, "an example per-profile array is guarded"
     assert c3["tiers"]["main"] is None
     assert sorted(c3["assignments"]) == [
-        "frida", "hazen", "leo", "mozi", "orda", "proteus", "shaka"]
+        "developer-a", "developer-b", "reviewer"]
     routes = {(t.get("provider"), t.get("model")) for t in c3["assignments"].values()}
     assert routes == {
-        ("openai-codex", "gpt-5.6-luna-900k"),
-        ("opencode-go", "muse-spark-1.3-contributor"),
-        ("opencode-go", "deepseek-v4.1-flash"),
+        ("openai", "gpt-4.1-mini"),
+        ("anthropic", "claude-sonnet-4.6"),
     }
 
 

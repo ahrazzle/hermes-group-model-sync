@@ -38,8 +38,8 @@
     },
     {
       "id": "config-3",
-      "name": "Config 3 (live fleet array, read 2026-09-17)",
-      "description": "A real selection array, not an example: per-profile assignments captured from a seven-profile fleet on 2026-09-17. proteus/frida: openai-codex / gpt-5.6-luna-900k; orda/hazen/shaka: opencode-go / muse-spark-1.3-contributor; leo/mozi: opencode-go / deepseek-v4.1-flash. Each assigned tier names the full route it has (provider, model, and — for the opencode-go routes — base_url and api_mode); agent.reasoning_effort and fallback_providers are deliberately not named, so an apply never touches them. Applying this preset to a profile it does NOT assign is refused — there is no fallback route and no guessing. A provider switch away from a route that set base_url/api_mode cannot clear those keys in v1 (no preset blanks a key), so verify after applying.",
+      "name": "Config 3 (example per-profile array)",
+      "description": "EXAMPLE ONLY — a synthetic per-profile assignment array with placeholder profile names and illustrative routes. Replace every profile name, provider, model, base_url and api_mode with your own before applying. Each assigned tier names the full route it has; agent.reasoning_effort and fallback_providers are deliberately not named, so an apply never touches them. Applying this preset to a profile it does NOT assign is refused — there is no fallback route and no guessing. A provider switch away from a route that set base_url/api_mode cannot clear those keys in v1 (no preset blanks a key), so verify after applying.",
       "guarded": true,
       "tiers": {
         "main": null,
@@ -47,13 +47,9 @@
         "fallback": null
       },
       "assignments": {
-        "proteus": { "provider": "openai-codex", "model": "gpt-5.6-luna-900k" },
-        "orda": { "provider": "opencode-go", "model": "muse-spark-1.3-contributor", "base_url": "https://opencode.ai/zen/go/v1", "api_mode": "codex_responses" },
-        "hazen": { "provider": "opencode-go", "model": "muse-spark-1.3-contributor", "base_url": "https://opencode.ai/zen/go/v1", "api_mode": "codex_responses" },
-        "leo": { "provider": "opencode-go", "model": "deepseek-v4.1-flash", "base_url": "https://opencode.ai/zen/go/v1", "api_mode": "chat_completions" },
-        "frida": { "provider": "openai-codex", "model": "gpt-5.6-luna-900k" },
-        "mozi": { "provider": "opencode-go", "model": "deepseek-v4.1-flash", "base_url": "https://opencode.ai/zen/go/v1", "api_mode": "chat_completions" },
-        "shaka": { "provider": "opencode-go", "model": "muse-spark-1.3-contributor", "base_url": "https://opencode.ai/zen/go/v1", "api_mode": "codex_responses" }
+        "developer-a": { "provider": "openai", "model": "gpt-4.1-mini" },
+        "developer-b": { "provider": "anthropic", "model": "claude-sonnet-4.6", "base_url": "https://api.example.com/v1", "api_mode": "chat_completions" },
+        "reviewer": { "provider": "openai", "model": "gpt-4.1-mini", "base_url": "https://api.example.com/v1", "api_mode": "chat_completions" }
       }
     }
   ]

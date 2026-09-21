@@ -139,8 +139,8 @@ ok(minimalCount >= 1, 'presets.json: at least one preset must be minimal (no rea
 // O4 — a preset carrying machine-specific values in its GLOBAL main tier must be VISIBLY
 // an example: these are illustrative carries, not fleet defaults and not a recommendation.
 // "Machine-valued" means it names a concrete provider/model/base_url. A per-profile
-// assignments preset is NOT an example — its values are a named fleet array with a stated
-// source, and it carries no global main tier, so it is checked for provenance instead.
+// assignments preset is likewise a synthetic example: placeholder profiles with
+// illustrative routes, visibly labelled — never real fleet data.
 let machineValued = 0
 let assignmentValued = 0
 for (const preset of data.presets) {
@@ -163,12 +163,8 @@ for (const preset of data.presets) {
   if (preset.assignments) {
     assignmentValued += 1
     ok(
-      !/\(example\)/i.test(preset.name) && !preset.description.includes('EXAMPLE ONLY'),
-      `preset ${preset.id}: an assignments preset carries a named real array, not an example — drop the example labelling`
-    )
-    ok(
-      /\d{4}-\d{2}-\d{2}/.test(preset.description),
-      `preset ${preset.id}: an assignments preset must state the date its array was read (provenance)`
+      /example/i.test(preset.name) && preset.description.includes('EXAMPLE ONLY'),
+      `preset ${preset.id}: an assignments preset must be labelled a synthetic example`
     )
   }
 }

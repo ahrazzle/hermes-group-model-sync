@@ -14,7 +14,7 @@ api_version: 1
 description: Fleet-wide provider/model presets (CLI + desktop pane) plus per-member model & reasoning selection for Bot Mode group chats and agent-wide model sync
 author: ahrazzle
 license: MIT
-homepage: https://github.com/ahrazzle/hermes-group-model-sync
+homepage: https://github.com/aska-digital/protean-model-sync
 tags: [desktop, bot-mode, model-sync, group-chat, presets, cli]
 python_dependencies: []
 provides_tools: []
