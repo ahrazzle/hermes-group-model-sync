@@ -6,13 +6,13 @@
 <title>protean-model-sync | fleet-wide model presets for Hermes</title>
 <meta name="description" content="Model control for a Hermes fleet: per-member model and reasoning for Bot Mode group chats, agent-wide session sync, and fleet-wide provider/model presets from the CLI or one desktop pane. Stdlib plus PyYAML only. No network of its own, no telemetry.">
 <meta property="og:title" content="protean-model-sync — fleet-wide model presets for Hermes">
-<meta property="og:description" content="Per-member model and reasoning for Bot Mode group chats, agent-wide session sync, and fleet-wide presets from the CLI or one desktop pane. Installed directly from the repo.">
+<meta property="og:description" content="Per-member model and reasoning for Bot Mode group chats, agent-wide session sync, and fleet-wide presets from the CLI or one desktop pane. In the official Hermes plugin catalog.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://aska-digital.github.io/protean-model-sync/">
 <meta property="og:image" content="https://aska-digital.github.io/protean-model-sync/og-image.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="protean-model-sync — fleet-wide model presets for Hermes">
-<meta name="twitter:description" content="Per-member model and reasoning for Bot Mode group chats, agent-wide session sync, and fleet-wide presets from the CLI or one desktop pane. Installed directly from the repo.">
+<meta name="twitter:description" content="Per-member model and reasoning for Bot Mode group chats, agent-wide session sync, and fleet-wide presets from the CLI or one desktop pane. In the official Hermes plugin catalog.">
 <meta name="twitter:image" content="https://aska-digital.github.io/protean-model-sync/og-image.jpg">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <style>
@@ -96,17 +96,19 @@ footer a:hover{color:var(--ink)}
 
 <div class="wrap" id="top">
   <div class="hero">
-    <p class="kicker">Hermes Agent plugin</p>
+    <p class="kicker">Hermes Agent plugin · in the official plugin catalog</p>
     <h1>Model control for a <span class="slash">Hermes fleet.</span></h1>
     <p class="lede"><strong>protean-model-sync</strong> gives one profile a fleet-wide voice. Set per-member model and reasoning in Bot Mode group chats, push one profile's model to every session of an agent, and apply named provider/model presets across profiles.</p>
     <p class="lede">Three surfaces, one package: a CLI, one right-side desktop pane, and a read-only status command. Every write is diffed, backed up, and read back.</p>
     <div class="cta">
       <a class="btn primary" href="#install">Install via Hermes</a>
+      <a class="btn" href="https://hermes-agent.nousresearch.com/docs/plugins/protean-model-sync">Plugin catalog page</a>
       <a class="btn" href="https://github.com/aska-digital/protean-model-sync">View source</a>
       <a class="btn" href="https://github.com/aska-digital/protean-model-sync#readme">README</a>
     </div>
     <div class="badges">
       <span class="badge"><span class="dot"></span>v1.1.0 · ahrazzle/hermes-group-model-sync</span>
+      <span class="badge"><span class="dot"></span>catalog SHA <code>50d3d09</code></span>
       <span class="badge"><span class="dot"></span>stdlib + PyYAML only · no pip</span>
       <span class="badge"><span class="dot"></span>no network of its own · no telemetry</span>
       <span class="badge warn"><span class="dot"></span>install does not activate either half</span>
@@ -224,7 +226,7 @@ hermes group-model-sync doctor                                 # env, profiles, 
 
   <section id="source">
     <h2><span class="n">07</span>Source</h2>
-    <p class="sub">MIT licensed. One unified package: agent half at the root, desktop half in <code>desktop/plugin.js</code>. Publishing to the plugin catalog is not part of this work; install comes straight from the repo.</p>
+    <p class="sub">MIT licensed. One unified package: agent half at the root, desktop half in <code>desktop/plugin.js</code>. In the official Hermes plugin catalog.</p>
     <div class="cmd">
       <pre>hermes-group-model-sync/
 ├── plugin.yaml              # manifest: no tools, no hooks, no settings
@@ -244,6 +246,7 @@ hermes group-model-sync doctor                                 # env, profiles, 
     </div>
     <div class="cta" style="margin-bottom:0">
       <a class="btn primary" href="https://github.com/aska-digital/protean-model-sync">GitHub repo</a>
+      <a class="btn" href="https://hermes-agent.nousresearch.com/docs/plugins/protean-model-sync">Plugin catalog page</a>
       <a class="btn" href="https://github.com/aska-digital/protean-model-sync/issues">File an issue</a>
       <a class="btn" href="https://hermes-agent.nousresearch.com/docs/developer-guide/plugins">Plugin developer guide</a>
     </div>
@@ -253,7 +256,7 @@ hermes group-model-sync doctor                                 # env, profiles, 
     <div class="wrap">
       <span><b style="color:var(--muted)">protean-model-sync</b> v1.1.0 · MIT · by <a href="https://github.com/aska-digital">aska-digital</a></span>
       <span class="spacer"></span>
-      <span>Hermes Agent plugin · installed from source, not in the catalog</span>
+      <span>In the <a href="https://hermes-agent.nousresearch.com/docs/plugins/protean-model-sync">Hermes Agent</a> plugin catalog</span>
     </div>
   </footer>
 </div>
