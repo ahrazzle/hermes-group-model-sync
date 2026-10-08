@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>protean-model-sync | fleet-wide model presets for Hermes</title>
+<meta name="description" content="Model control for a Hermes fleet: per-member model and reasoning for Bot Mode group chats, agent-wide session sync, and fleet-wide provider/model presets from the CLI or one desktop pane. Stdlib plus PyYAML only. No network of its own, no telemetry.">
+<meta property="og:title" content="protean-model-sync — fleet-wide model presets for Hermes">
+<meta property="og:description" content="Per-member model and reasoning for Bot Mode group chats, agent-wide session sync, and fleet-wide presets from the CLI or one desktop pane. Installed directly from the repo.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://aska-digital.github.io/protean-model-sync/">
+<meta property="og:image" content="https://aska-digital.github.io/protean-model-sync/og-image.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="protean-model-sync — fleet-wide model presets for Hermes">
+<meta name="twitter:description" content="Per-member model and reasoning for Bot Mode group chats, agent-wide session sync, and fleet-wide presets from the CLI or one desktop pane. Installed directly from the repo.">
+<meta name="twitter:image" content="https://aska-digital.github.io/protean-model-sync/og-image.jpg">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+:root{
+  --bg:#0b0e14; --panel:#11161f; --panel2:#151b26; --line:#232b3a;
+  --ink:#e8ecf3; --muted:#9aa5b8; --dim:#6b7488;
+  --accent:#7dd3fc; --accent-dim:#3b82a6; --ok:#7ee8a2; --warn:#ffd479; --bad:#ff9c9c;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:880px;margin:0 auto;padding:0 22px}
+header.top{border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,14,20,.92);backdrop-filter:blur(8px);z-index:10}
+header.top .wrap{display:flex;align-items:center;gap:18px;padding-top:14px;padding-bottom:14px}
+.brand{font-family:var(--mono);font-size:15px;color:var(--ink);text-decoration:none}
+.brand b{color:var(--accent)}
+nav{margin-left:auto;display:flex;gap:16px;font-size:14px}
+nav a{color:var(--muted);text-decoration:none}
+nav a:hover{color:var(--ink)}
+.hero{padding:72px 0 48px}
+.kicker{font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--accent);text-transform:uppercase;margin:0 0 18px}
+h1{font-size:clamp(34px,6vw,52px);line-height:1.12;margin:0 0 18px;font-weight:650;letter-spacing:-.01em}
+h1 .slash{color:var(--accent)}
+.lede{font-size:19px;color:var(--muted);max-width:640px;margin:0 0 30px}
+.lede strong{color:var(--ink);font-weight:600}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:34px}
+.btn{display:inline-block;padding:11px 20px;border-radius:9px;font-size:15px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--ink);background:var(--panel)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#06121a}
+.btn:hover{filter:brightness(1.1)}
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.badge{font-family:var(--mono);font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:4px 12px;background:var(--panel)}
+.badge .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:6px}
+.badge.warn .dot{background:var(--warn)}
+section{padding:44px 0;border-top:1px solid var(--line)}
+h2{font-size:26px;margin:0 0 6px;font-weight:650;letter-spacing:-.01em}
+h2 .n{font-family:var(--mono);font-size:15px;color:var(--dim);font-weight:400;margin-right:10px}
+.sub{color:var(--muted);margin:0 0 22px;max-width:660px}
+.sub strong{color:var(--ink);font-weight:600}
+.grid{display:grid;gap:14px}
+@media(min-width:700px){.grid.cols3{grid-template-columns:repeat(3,1fr)}.grid.cols2{grid-template-columns:repeat(2,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px}
+.card h3{margin:0 0 8px;font-size:16px}
+.card p{margin:0;color:var(--muted);font-size:14.5px}
+.card .tag{font-family:var(--mono);font-size:12px;color:var(--accent)}
+pre{background:#080b10;border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.6;color:#cdd6e4}
+code{font-family:var(--mono);font-size:.92em}
+.cmd{position:relative;margin:0 0 14px}
+.cmd button{position:absolute;top:8px;right:8px;background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:7px;font-size:12px;padding:5px 10px;cursor:pointer;font-family:var(--mono)}
+.cmd button:hover{color:var(--ink)}
+table{width:100%;border-collapse:collapse;font-size:14.5px;margin:0 0 18px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:12.5px;color:var(--dim);font-weight:500}
+td.m{font-family:var(--mono);font-size:13.5px}
+td .ok{color:var(--ok)} td .warn{color:var(--warn)}
+.note{border-left:3px solid var(--accent-dim);padding:2px 0 2px 16px;color:var(--muted);font-size:14.5px;margin:0 0 18px}
+.note strong{color:var(--ink)}
+ul.tight{margin:0 0 18px;padding-left:20px;color:var(--muted)}
+ul.tight li{margin-bottom:6px}
+ul.tight strong{color:var(--ink);font-weight:600}
+footer{border-top:1px solid var(--line);padding:30px 0 60px;color:var(--dim);font-size:13.5px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--ink)}
+.spacer{flex:1}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top"><b>protean</b>-model-sync</a>
+    <nav>
+      <a href="#install">Install</a>
+      <a href="#how">How it works</a>
+      <a href="#safe">Safe by design</a>
+      <a href="#presets">Presets</a>
+      <a href="#source">Source</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap" id="top">
+  <div class="hero">
+    <p class="kicker">Hermes Agent plugin</p>
+    <h1>Model control for a <span class="slash">Hermes fleet.</span></h1>
+    <p class="lede"><strong>protean-model-sync</strong> gives one profile a fleet-wide voice. Set per-member model and reasoning in Bot Mode group chats, push one profile's model to every session of an agent, and apply named provider/model presets across profiles.</p>
+    <p class="lede">Three surfaces, one package: a CLI, one right-side desktop pane, and a read-only status command. Every write is diffed, backed up, and read back.</p>
+    <div class="cta">
+      <a class="btn primary" href="#install">Install via Hermes</a>
+      <a class="btn" href="https://github.com/aska-digital/protean-model-sync">View source</a>
+      <a class="btn" href="https://github.com/aska-digital/protean-model-sync#readme">README</a>
+    </div>
+    <div class="badges">
+      <span class="badge"><span class="dot"></span>v1.1.0 · ahrazzle/hermes-group-model-sync</span>
+      <span class="badge"><span class="dot"></span>stdlib + PyYAML only · no pip</span>
+      <span class="badge"><span class="dot"></span>no network of its own · no telemetry</span>
+      <span class="badge warn"><span class="dot"></span>install does not activate either half</span>
+    </div>
+  </div>
+
+  <section id="install">
+    <h2><span class="n">01</span>Install</h2>
+    <p class="sub">Install <strong>per profile</strong>. Writes are profile-native, so the habit is one install per profile. Pinning <code>--ref</code> is deliberate: an upgrade becomes an explicit choice of a new commit.</p>
+    <div class="cmd">
+      <pre>hermes -p &lt;profile&gt; plugins install ahrazzle/hermes-group-model-sync --ref &lt;40-char-commit-sha&gt;
+hermes -p &lt;profile&gt; plugins enable hermes-group-model-sync</pre>
+      <button data-copy>copy</button>
+    </div>
+    <p class="note"><strong><code>install</code> is not activation.</strong> The CLI half turns on through <code>plugins enable</code>. The desktop half turns on in <strong>Settings → Plugins</strong>, and it hot-reloads on save once enabled. Both halves are opt-in and off by default.</p>
+    <p class="note"><strong>Needs:</strong> Hermes with plugin support (agent half: CLI plus dashboard routes; desktop half: Hermes Desktop). The Groups and Agents tabs also need Bot Mode group chats (the bundled <code>hermes-bots</code> plugin) and backend support for <code>profiles.configure</code>. Nothing else: the agent half runs on the stock Hermes Python.</p>
+    <p class="sub" style="margin-bottom:0"><strong>Upgrade:</strong> <code>hermes -p &lt;profile&gt; plugins update hermes-group-model-sync</code> — refused while pinned, which is intended. The desktop half needs no second command: the runtime loader watches its folder and reloads it in place. <strong>Uninstall:</strong> <code>hermes -p &lt;profile&gt; plugins remove hermes-group-model-sync</code>, and turn the desktop half off in Settings → Plugins. Removing the install folder does not touch any profile's <code>config.yaml</code> or any backup. <code>presets/presets.json</code> lives inside the install folder, so an upgrade replaces it: keep your own preset values in your own copy of this repository.</p>
+  </section>
+
+  <section id="how">
+    <h2><span class="n">02</span>How it works</h2>
+    <p class="sub">Hermes Desktop switches a model per session, and the Dashboard switches one profile's default. Nothing shows what each agent in a group chat is running, nothing pushes one configuration to every session of an agent, and nothing applies a named provider/model preset across profiles. This plugin fills those three gaps.</p>
+    <div class="grid cols3">
+      <div class="card">
+        <p class="tag">hermes group-model-sync</p>
+        <h3>CLI</h3>
+        <p>Six verbs: <code>preset</code>, <code>plan</code>, <code>apply</code>, <code>verify</code>, <code>rollback</code>, <code>doctor</code>. Writes a named profile's <code>config.yaml</code> with a backup and a read-back, or writes nothing at all.</p>
+      </div>
+      <div class="card">
+        <p class="tag">Model Sync pane</p>
+        <h3>Desktop</h3>
+        <p>One right-side pane, three tabs. <strong>Groups</strong> shows every member agent's model and reasoning in a Bot Mode room, changeable per member. <strong>Agents</strong> pushes one profile's model and reasoning to every existing session of that agent. <strong>Presets</strong> applies a named preset to explicitly chosen profiles, with a diff preview first.</p>
+      </div>
+      <div class="card">
+        <p class="tag">/gms status</p>
+        <h3>Read-only status</h3>
+        <p>An in-session command for the CLI and the gateway. Reports the current state and writes nothing, by design.</p>
+      </div>
+    </div>
+    <p style="height:18px"></p>
+    <div class="grid cols2">
+      <div class="card">
+        <h3>Deliberately no agent tool</h3>
+        <p>There is no model-facing tool. A tool that can rewrite <code>config.yaml</code> is a mis-invocation risk with no upside. Presets are applied by a human act: the CLI, or the pane.</p>
+      </div>
+      <div class="card">
+        <h3>One source of preset truth</h3>
+        <p>Both halves read one file: <code>presets/presets.json</code> inside the installed package. That file is the only catalog v1 reads. The manifest declares no tools, no hooks, no middleware, and no settings (<code>config_schema: {}</code>).</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="cli">
+    <h2><span class="n">03</span>Try the CLI</h2>
+    <p class="sub">Every verb is safe to explore: <code>plan</code> prints the diff and writes nothing. Add <code>--json</code> to any verb for a machine-readable receipt.</p>
+    <div class="cmd">
+      <pre>hermes group-model-sync preset list                           # ids + one-line descriptions
+hermes group-model-sync preset show fleet-default             # every key that preset names
+hermes group-model-sync plan  fleet-default --profiles a,b     # read-only diff; writes nothing
+hermes group-model-sync apply fleet-default --profiles a,b --yes --verify
+hermes group-model-sync verify --profiles a,b                  # read-back only (config + state.db)
+hermes group-model-sync rollback --profile a                   # restore the newest backup
+hermes group-model-sync doctor                                 # env, profiles, schema, version drift</pre>
+      <button data-copy>copy</button>
+    </div>
+    <p class="note" style="margin-bottom:0"><strong>Two modes without <code>--yes</code>:</strong> plain <code>apply</code> prints the plan and exits non-zero. <code>--dry-run</code> prints the plan and exits 0.</p>
+  </section>
+
+  <section id="safe">
+    <h2><span class="n">04</span>Safe by design</h2>
+    <p class="sub">The key scope is locked at six. A preset can touch these and nothing else:</p>
+    <table>
+      <tr><th>Key</th><th>What it sets</th></tr>
+      <tr><td class="m"><code>model.provider</code></td><td>provider route for the profile</td></tr>
+      <tr><td class="m"><code>model.default</code></td><td>default model</td></tr>
+      <tr><td class="m"><code>model.base_url</code></td><td>endpoint override</td></tr>
+      <tr><td class="m"><code>model.api_mode</code></td><td>API mode</td></tr>
+      <tr><td class="m"><code>agent.reasoning_effort</code></td><td>reasoning effort</td></tr>
+      <tr><td class="m"><code>fallback_providers</code></td><td>fallback chain</td></tr>
+    </table>
+    <ul class="tight">
+      <li><strong>A key the preset does not name is never written.</strong> Absent is not null and not "clear it". There is no way for a preset to blank a key.</li>
+      <li><strong>Only differing keys are written.</strong> A second identical apply writes nothing and says so.</li>
+      <li><strong><code>apply</code> needs an explicit target and <code>--yes</code>.</strong> It refuses an unknown preset, a profile that does not exist, a profile with no <code>config.yaml</code>, and an unparseable <code>config.yaml</code>.</li>
+      <li><strong>Every write is backed up and read back.</strong> The current file is copied to <code>config.yaml.bak-&lt;UTC&gt;-&lt;preset id&gt;</code> first; every changed key is read back from the file afterwards. A write that does not read back as intended is a failure, not a warning. <code>rollback</code> restores a backup, takes its own safety copy first, and re-verifies.</li>
+      <li><strong>Guarded presets need <code>--confirm-expensive</code></strong> (CLI) or the confirm dialog (pane) before they will write.</li>
+      <li><strong>Apply is future-sessions-only.</strong> A session already running keeps the model it started with. The CLI has no verb that pins live sessions, and it is never a side effect of a preset. Pinning an existing session is a separate, explicit desktop action (Model Sync → Agents).</li>
+      <li><strong>A declared <code>aux</code> tier is reported as "declared, not applied".</strong> It is carried and schema-validated, but the target's <code>auxiliary.*</code> slots sit outside the locked scope.</li>
+    </ul>
+    <p class="note" style="margin-bottom:0"><strong>Verification reads reality:</strong> <code>apply --verify</code> reads the target's <code>state.db</code> for usage rows of the declared model. "No usage rows yet" is reported as <span style="color:var(--warn)">UNVERIFIED</span>, never as success. <code>--require-verified</code> makes that fatal.</p>
+  </section>
+
+  <section id="presets">
+    <h2><span class="n">05</span>Shipped presets</h2>
+    <p class="sub">Three presets ship with the package. Two are samples. One is a real fleet array.</p>
+    <table>
+      <tr><th>Preset</th><th>What it is</th></tr>
+      <tr><td class="m"><code>fleet-default</code></td><td>Labelled <strong>EXAMPLE ONLY</strong>. Illustrative machine-specific values (an opencode-go route) so <code>plan</code> has something real to diff against on a first run. Not a fleet default and not a recommendation.</td></tr>
+      <tr><td class="m"><code>minimal</code></td><td>Labelled <strong>EXAMPLE ONLY</strong>. Illustrative values (a direct-deepseek route). Same rule: replace every value with your own before applying.</td></tr>
+      <tr><td class="m"><code>config-3</code></td><td>A real <strong>guarded</strong> per-profile array: seven fleet profiles on three distinct routes, read 2026-09-17. It names no reasoning effort and no fallback chain, and it refuses every profile outside its seven.</td></tr>
+    </table>
+    <p class="note"><strong>The two example presets may be stale or invalid on another install.</strong> Replace every value with your own before applying. <code>config-3</code> is guarded because one route names a model the gateway may treat as expensive, so applying it needs <code>--confirm-expensive</code>. Replace it with your own array before relying on it.</p>
+    <p class="sub" style="margin-bottom:0">A preset with per-profile <code>assignments</code> (a named fleet array: one route per profile) applies only to the profiles it names. A target it does not name is refused with the assigned names listed. Presets never guess a route.</p>
+  </section>
+
+  <section id="privacy">
+    <h2><span class="n">06</span>Privacy disclosure</h2>
+    <ul class="tight">
+      <li><strong>No telemetry, no network, no background work.</strong> The agent half runs on the stock Hermes Python: stdlib plus the PyYAML Hermes already ships. No pip dependency, no lazy install, no network call of its own.</li>
+      <li><strong>All data is local.</strong> Nothing leaves the machine except through the app's own gateway connections.</li>
+      <li><strong>No Hermes core changes required or made.</strong> Writes go through the host's own fail-closed atomic write path, profile-scoped. The Groups and Agents tabs use the app's own gateway RPCs.</li>
+    </ul>
+    <p class="note" style="margin-bottom:0"><strong>Capability boundary:</strong> the manifest declares no tools, no hooks, no middleware, and no settings (<code>config_schema: {}</code>). It does not hook the session loop and writes nothing outside the target profile's own <code>config.yaml</code> and backups.</p>
+  </section>
+
+  <section id="source">
+    <h2><span class="n">07</span>Source</h2>
+    <p class="sub">MIT licensed. One unified package: agent half at the root, desktop half in <code>desktop/plugin.js</code>. Publishing to the plugin catalog is not part of this work; install comes straight from the repo.</p>
+    <div class="cmd">
+      <pre>hermes-group-model-sync/
+├── plugin.yaml              # manifest: no tools, no hooks, no settings
+├── __init__.py              # register(ctx): CLI command + /gms command + bundled skill
+├── plugin.py                # shared core: load, validate, diff, apply, verify, rollback
+├── presets/
+│   ├── presets.json         # the one source of preset truth (both halves read this)
+│   └── README.md            # format, key scope, the absent-key rule
+├── dashboard/
+│   ├── manifest.json        # publishes the backend router to dashboard/desktop
+│   ├── plugin_api.py        # FastAPI router: presets, plan, apply, profiles, status
+│   └── config_core.py       # the single host-config write path (atomic, profile-scoped)
+├── skills/group-model-sync/ # agent-facing how-to for the verbs
+├── desktop/plugin.js        # desktop half: Groups, Agents, Presets tabs
+├── test/                    # pytest + node suites
+└── README.md</pre>
+    </div>
+    <div class="cta" style="margin-bottom:0">
+      <a class="btn primary" href="https://github.com/aska-digital/protean-model-sync">GitHub repo</a>
+      <a class="btn" href="https://github.com/aska-digital/protean-model-sync/issues">File an issue</a>
+      <a class="btn" href="https://hermes-agent.nousresearch.com/docs/developer-guide/plugins">Plugin developer guide</a>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <span><b style="color:var(--muted)">protean-model-sync</b> v1.1.0 · MIT · by <a href="https://github.com/aska-digital">aska-digital</a></span>
+      <span class="spacer"></span>
+      <span>Hermes Agent plugin · installed from source, not in the catalog</span>
+    </div>
+  </footer>
+</div>
+<script>
+document.querySelectorAll('[data-copy]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var pre = btn.parentElement.querySelector('pre');
+    navigator.clipboard.writeText(pre.textContent.replace(/\\\n/g,'')).then(function(){
+      btn.textContent = 'copied'; setTimeout(function(){ btn.textContent = 'copy'; }, 1200);
+    });
+  });
+});
+</script>
+</body>
+</html>
